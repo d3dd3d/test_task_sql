@@ -7,8 +7,6 @@ create table test.amb(
 	name varchar(128)
 )
 
---copy test.amb (ckey, cref, cnum, cend, textcode, name) FROM 'ambdata5.csv' CSV ENCODING 'UTF8' delimiter ';' null '' HEADER
-
 CREATE PROCEDURE test.fillCodes()
 LANGUAGE 'plpgsql'
 AS $BODY$
