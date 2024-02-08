@@ -1,0 +1,48 @@
+create table test.amb(
+	ckey integer,
+	cref integer,
+	cnum integer,
+	cend integer,
+	textcode char(16),
+	name varchar(128)
+)
+
+--copy test.amb (ckey, cref, cnum, cend, textcode, name) FROM 'ambdata5.csv' CSV ENCODING 'UTF8' delimiter ';' null '' HEADER
+
+CREATE PROCEDURE test.fillCodes()
+LANGUAGE 'plpgsql'
+AS $BODY$
+declare
+	curs refcursor; --Будем работать с каждой строчкой отдельно, через курсор
+	rec record;
+	numb int = 0; --Номер пункта в своей иерархии
+	par_cur int = 0; --Порядковый номер иерархии 
+	par_last text; --Порядковый номер пункта в своей иерархии
+	ckey_par int = 0; --Уникальный код пункта родителя
+begin
+	open curs for execute 'select textcode from test.amb order by textcode';
+	Loop
+		Fetch next from curs into rec;
+		Exit when rec is null; --Выходим, когда записей больше нет
+		
+		par_cur = split_part(rec.textcode,'.',1)::int;
+		par_last = reverse(split_part(reverse(rec.textcode),'.',2)); --split_part(rec.textcode,'.',-1)::int; если у вас стоит 14 версия (у меня нет( )
+		numb = (select max(ckey) from test.amb where split_part(textcode,'.',1)::int=par_cur);
+		if (numb is null) then
+			numb=par_cur * 1000;
+		else 
+			numb = numb + 1;
+		end if;
+		ckey_par = (select distinct ckey from test.amb where textcode=substr(rec.textcode, 0, char_length(rec.textcode) - char_length(par_last)));
+		if (ckey_par is null) then
+			ckey_par=0;
+		else
+			execute 'update test.amb set cend=1 where ckey=$1' using ckey_par;
+		end if;
+		
+		execute 'update test.amb set ckey=$1, cnum=$2, cref=$3, cend = 0 where textcode=$4'
+		using numb, par_last::int, ckey_par, rec.textcode;
+	End Loop;
+	close curs;
+end;
+$BODY$;

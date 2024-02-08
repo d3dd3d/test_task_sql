@@ -1,0 +1,335 @@
+Create schema test;
+Create Table test.Schet(
+	id_schet serial primary key, --Первичный ключ для поиска конкретного счета,
+	--должен быть uuid с методом создания случайного uuid, но
+	--т.к. такой задачи не стоит используется serial
+	code_mo_schet char(6) not null,
+	year_schet integer not null,
+	month_schet integer not null,
+	nschet_schet char(20),
+	dschet_schet date,
+	plat_schet char(5),
+	comments_schet varchar(250)
+);
+Create Table test.Sluch(
+	id_sluch uuid primary key,
+	id_schet integer not null,
+	foreign key(id_schet) references test.Schet (id_schet) on DELETE cascade,
+	--Вынос вложенных сущностей в отдельные,
+	--т.к. необходимо создать только 3 таблицы
+	--внешние ключи комментируются
+	--foreign key(id_pd) references test.PD (id_pd) on DELETE cascade,
+	--foreign key(id_ds) references test.DS (id_ds) on DELETE cascade,
+	--foreign key(id_disp) references test.Disp (id_disp) on DELETE set null,
+	--foreign key(id_sumsluch) references test.SumSluch (id_sumsluch) on DELETE cascade,
+	pr_nov_sluch char(1) not null,
+	vidpom_sluch char(2) not null,
+	moddate_sluch timestamp,
+	begdate_sluch timestamp not null,
+	enddate_sluch timestamp not null,
+	mo_custom_sluch char(6) not null,
+	lpubase_sluch integer,
+	id_stat_sluch integer not null,
+	smo_sluch char(5),
+	smo_ok_sluch char(5),
+	novor char(9),
+	lpucode_sluch integer not null,
+	npr_mo_sluch char(6),
+	npr_type_sluch integer,
+	npr_mdcode_sluch char(8),
+	extr_sluch integer not null,
+	nhistory_sluch varchar(50) not null,
+	code_mes1_sluch char(16),
+	code_mes2_sluch char(16),
+	app_goal_sluch integer,
+	rslt_sluch integer not null,
+	ishod_sluch integer not null,
+	vid_hmp char(12),
+	metod_hmp integer,
+	prvs_sluch integer not null,
+	profil_sluch char(11) not null,
+	det_sluch integer not null,
+	iddokt_sluch char(8) not null,
+	povod_sluch real,
+	os_sluch integer, --Для данной задачи в исходных данных лучше ввести еще число 3,
+	--обозначающий все особые случаи.
+	--Если же делать для более большего кол-ва кодов, то нужно
+	--создать отдельную сущность, которая будет реализовывать связь "1:N",
+	--либо менять тип на строковой и через разделитель писать код, например "1,3,8"
+	signpay_sluch integer not null,
+	idsp_sluch integer not null,
+	grp_sk_sluch integer,
+	oplata_sluch integer,
+	ed_col_sluch decimal,
+	koeffcur_sluch decimal,
+	idsl_sluch varchar, --Реализация строкового подхода "1:N"
+	kol_mat_sluch real,
+	inv_sluch integer,
+	vnov_sluch integer,
+	p_per_sluch integer,
+	podr_sluch integer not null,
+	tal_d_sluch date,
+	tal_p_sluch date,
+	npr_date_sluch date,
+	sch_code_sluch char(10),
+	it_type_sluch char(10),
+	srm_mark_sluch char(10),
+	mse_sluch integer,
+	usl_ok_sluch integer not null,
+	commentsl_sluch varchar(250)
+);
+Create Table test.Usl(
+	id_usl uuid primary key,
+	id_sluch uuid not null,
+	foreign key(id_sluch) references test.Sluch (id_sluch) on DELETE cascade,
+	code_usl char(16) not null,
+	prvs_usl integer not null,
+	dateusl date not null,
+	code_mv_usl char(8) not null,
+	skind_usl integer not null,
+	typeoper_usl integer,
+	--Для поля intox должен быть справочник с внешним ключом usl,
+	--Для поля ds_dent тоже самое
+	podr_usl integer not null,
+	profil_usl char(11) not null,
+	det_usl integer not null,
+	bedprof_usl integer,
+	kol_usl real not null,
+	vid_vme_usl char(15),
+	npl_usl integer,
+	comment_usl varchar(250)
+);
+
+CREATE PROCEDURE test.parseXML(
+	p_path text)
+    LANGUAGE 'plpgsql'
+AS $BODY$
+declare
+	l_oid oid;
+  	r record;
+  	p_result bytea;
+  	datas xml;
+  	schet_id integer; --Учитывая, что одному файлу соответствует один счет,
+  	--будем сохранять id счета в отдельную переменную, для последующего добавления
+begin
+	--Считывание xml файла в bytea
+	p_result := '';
+	select lo_import(p_path) into l_oid;
+	for r in ( select data 
+		from pg_largeobject 
+		where loid = l_oid 
+		order by pageno ) loop
+   			p_result = p_result || r.data;
+		end loop;
+	perform lo_unlink(l_oid);
+	
+	--Получение xml
+	
+	datas := convert_from(p_result, 'windows-1251')::xml;
+	
+	--Вставка данных в таблицу Счет
+	
+	insert into test.Schet (code_mo_schet,
+		year_schet,
+		month_schet,
+		nschet_schet,
+		dschet_schet,
+		plat_schet,
+		comments_schet)
+	(SELECT *
+	FROM xmltable('ZL_LIST/SCHET' PASSING datas COLUMNS
+		code_mo_schet char(6) PATH 'CODE_MO',
+		year_schet integer PATH 'YEAR',
+		month_schet integer PATH 'MONTH',
+		nschet_schet char(20) PATH 'NSCHET',
+		dschet_schet date PATH 'DSCHET',
+		plat_schet char(5) PATH 'PLAT',
+		comments_schet varchar(250) PATH 'COMENTS')) returning id_schet into schet_id;
+		
+	--Вставка данных в таблицу Случай
+	--Необходимо описывание всех столбцов для добавления переменной schet_id в Insert
+	
+	insert into test.sluch(
+		id_sluch,
+		id_schet,
+		pr_nov_sluch,
+		vidpom_sluch,
+		moddate_sluch,
+		begdate_sluch,
+		enddate_sluch,
+		mo_custom_sluch,
+		lpubase_sluch,
+		id_stat_sluch,
+		smo_sluch,
+		smo_ok_sluch,
+		novor,
+		lpucode_sluch,
+		npr_mo_sluch,
+		npr_type_sluch,
+		npr_mdcode_sluch,
+		extr_sluch,
+		nhistory_sluch,
+		code_mes1_sluch,
+		code_mes2_sluch,
+		app_goal_sluch,
+		rslt_sluch,
+		ishod_sluch,
+		vid_hmp,
+		metod_hmp,
+		prvs_sluch,
+		profil_sluch,
+		det_sluch,
+		iddokt_sluch,
+		povod_sluch,
+		os_sluch, 
+		signpay_sluch,
+		idsp_sluch,
+		grp_sk_sluch,
+		oplata_sluch,
+		ed_col_sluch,
+		koeffcur_sluch,
+		idsl_sluch, 
+		kol_mat_sluch,
+		inv_sluch,
+		vnov_sluch,
+		p_per_sluch,
+		podr_sluch,
+		tal_d_sluch,
+		tal_p_sluch,
+		npr_date_sluch,
+		sch_code_sluch,
+		it_type_sluch,
+		srm_mark_sluch,
+		mse_sluch,
+		usl_ok_sluch,
+		commentsl_sluch) 
+	(SELECT 
+		id_sluch,
+		schet_id, --Переменная
+		pr_nov_sluch,
+		vidpom_sluch,
+		moddate_sluch,
+		begdate_sluch,
+		enddate_sluch,
+		mo_custom_sluch,
+		lpubase_sluch,
+		id_stat_sluch,
+		smo_sluch,
+		smo_ok_sluch,
+		novor,
+		lpucode_sluch,
+		npr_mo_sluch,
+		npr_type_sluch,
+		npr_mdcode_sluch,
+		extr_sluch,
+		nhistory_sluch,
+		code_mes1_sluch,
+		code_mes2_sluch,
+		app_goal_sluch,
+		rslt_sluch,
+		ishod_sluch,
+		vid_hmp,
+		metod_hmp,
+		prvs_sluch,
+		profil_sluch,
+		det_sluch,
+		iddokt_sluch,
+		povod_sluch,
+		os_sluch, 
+		signpay_sluch,
+		idsp_sluch,
+		grp_sk_sluch,
+		oplata_sluch,
+		ed_col_sluch,
+		koeffcur_sluch,
+		idsl_sluch, 
+		kol_mat_sluch,
+		inv_sluch,
+		vnov_sluch,
+		p_per_sluch,
+		podr_sluch,
+		tal_d_sluch,
+		tal_p_sluch,
+		npr_date_sluch,
+		sch_code_sluch,
+		it_type_sluch,
+		srm_mark_sluch,
+		mse_sluch,
+		usl_ok_sluch,
+		commentsl_sluch
+	FROM xmltable('ZL_LIST/SCHET/SLUCH' PASSING datas COLUMNS
+		id_sluch uuid PATH 'ID_SLUCH',
+		pr_nov_sluch char(1) PATH 'PR_NOV',
+		vidpom_sluch char(2) PATH 'VIDPOM',
+		moddate_sluch timestamp PATH 'MODDATE',
+		begdate_sluch timestamp PATH 'BEGDATE',
+		enddate_sluch timestamp PATH 'ENDDATE',
+		mo_custom_sluch char(6) PATH 'MO_CUSTOM',
+		lpubase_sluch integer PATH 'LPUBASE',
+		id_stat_sluch integer PATH 'ID_STAT',
+		smo_sluch char(5) PATH 'SMO',
+		smo_ok_sluch char(5) PATH 'SMO_OK',
+		novor char(9) PATH 'NOVOR',
+		lpucode_sluch integer PATH 'LPUCODE',
+		npr_mo_sluch char(6) PATH 'NPR_MO',
+		npr_type_sluch integer PATH 'NPR_TYPE',
+		npr_mdcode_sluch char(8) PATH 'NPR_MDCODE',
+		extr_sluch integer PATH 'EXTR',
+		nhistory_sluch varchar(50) PATH 'NHISTORY',
+		code_mes1_sluch char(16) PATH 'CODE_MES1',
+		code_mes2_sluch char(16) PATH 'CODE_MES2',
+		app_goal_sluch integer PATH 'APP_GOAL',
+		rslt_sluch integer PATH 'RSLT',
+		ishod_sluch integer PATH 'ISHOD',
+		vid_hmp char(12) PATH 'VID_HMP',
+		metod_hmp integer PATH 'METOD_HMP',
+		prvs_sluch integer PATH 'PRVS',
+		profil_sluch char(11) PATH 'PROFIL',
+		det_sluch integer PATH 'DET',
+		iddokt_sluch char(8) PATH 'IDDOKT',
+		povod_sluch real PATH 'POVOD',
+		os_sluch integer PATH 'OS_SLUCH', 
+		signpay_sluch integer PATH 'SIGNPAY',
+		idsp_sluch integer PATH 'IDSP',
+		grp_sk_sluch integer PATH 'GRP_SK',
+		oplata_sluch integer PATH 'OPLATA',
+		ed_col_sluch decimal PATH 'ED_COL',
+		koeffcur_sluch decimal PATH 'KOEFFCUR',
+		idsl_sluch varchar PATH 'IDSL', 
+		kol_mat_sluch real PATH 'KOL_MAT',
+		inv_sluch integer PATH 'INV',
+		vnov_sluch integer PATH 'VNOV',
+		p_per_sluch integer PATH 'P_PER',
+		podr_sluch integer PATH 'PODR',
+		tal_d_sluch date PATH 'TAL_D',
+		tal_p_sluch date PATH 'TAL_P',
+		npr_date_sluch date PATH 'NPR_DATE',
+		sch_code_sluch char(10) PATH 'SCH_CODE',
+		it_type_sluch char(10) PATH 'IT_TYPE',
+		srm_mark_sluch char(10) PATH 'SRM_MARK',
+		mse_sluch integer PATH 'MSE',
+		usl_ok_sluch integer PATH 'USL_OK',
+		commentsl_sluch varchar(250) PATH 'COMENTSL'));
+	
+	--Вставка данных в таблицу Услуга
+	
+	Insert into test.Usl (select *
+	FROM xmltable('ZL_LIST/SCHET/SLUCH/USL' PASSING datas COLUMNS
+		id_usl uuid PATH 'ID_USL',
+		id_sluch uuid PATH '../ID_SLUCH',
+		code_usl char(16) PATH 'CODE_USL',
+		prvs_usl integer PATH 'PRVS',
+		dateusl date PATH 'DATEUSL',
+		code_mv_usl char(8) PATH 'CODE_MD',
+		skind_usl integer PATH 'SKIND',
+		typeoper_usl integer PATH 'TYPEOPER',
+		podr_usl integer PATH 'PODR',
+		profil_usl char(11) PATH 'PROFIL',
+		det_usl integer PATH 'DET',
+		bedprof_usl integer PATH 'BEDPROF',
+		kol_usl real PATH 'KOL_USL',
+		vid_vme_usl char(15) PATH 'VID_VME',
+		npl_usl integer PATH 'NPL',
+		comment_usl varchar(250) PATH 'COMENTU'));
+end;
+$BODY$;
